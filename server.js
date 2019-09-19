@@ -2,6 +2,7 @@ const config = require('./config');
 const zmq = require('zeromq');
 const Uuid = require('node-uuid');
 const app = require('express')();
+const WebSocket = require('ws');
 const http = require('http').createServer(app);
 const conferences = config.conferences;
 const ahoymedCallbacks = {};
@@ -17,12 +18,31 @@ http.listen(config.socketIo.port, function(){
 const io = require('socket.io')(http);
 
 
+function destroyRtpEndpoint(endpointId) {
+  var uuid = Uuid.v4();
+  var message = {
+    destroyRtpEndpointRequest: {
+      id: endpointId,
+      uuid: uuid
+    }
+  };
+  console.log('request: ' + JSON.stringify(message));
+  ahoymedCallbacks[uuid] = function(response) {
+    console.log('ahoymed response', response);
+  };
+  ahoymedSocket.send(JSON.stringify(message));
+}
+
 io.on('connection', function(socket){
-  const member = { uuid: Uuid.v4(), audio: false, video: false, moderator: false };
+  const member = { uuid: Uuid.v4(), audio: false, video: false, moderator: false, streams: {} };
 
   socket.on('joinConference', function(conferenceId, password) {
     if (conferences[conferenceId]) {
       const conference = conferences[conferenceId];
+      if (conference.moderatorPassword == password) {
+        member.moderator = true;
+      }
+      console.log('joinConference: password ' + password + ' moderatorPassword ' + conference.moderatorPassword);
       if (!conference.members) {
         conference.members = {};
       }
@@ -35,11 +55,22 @@ io.on('connection', function(socket){
     }
   })
 
-  socket.on('startMedia', function(audio, video) {
+  socket.on('stopMedia', function(stream) {
     const conference = conferences[member.conferenceId];
     if (conference) {
-      member.audio = audio;
-      member.video = video;
+      Object.keys(member.streams).forEach(function(streamUuid) {
+        if (member.streams[streamUuid].name == stream.name) {
+          destroyRtpEndpoint(member.streams[streamUuid].rxRtpEndpointId);
+          io.to('conference_' + member.conferenceId).emit('memberMediaStatus', member, member.streams[streamUuid], false);
+        }
+      });
+    }
+  });
+
+  socket.on('startMedia', function(name, audio, video) {
+    const conference = conferences[member.conferenceId];
+    if (conference) {
+      const stream = { name: name, audio: audio, video: video, uuid: Uuid.v4() };
       if (audio || video) {
         // create a RTP endpoint to receive audio/video from the client
         var uuid = Uuid.v4();
@@ -52,6 +83,7 @@ io.on('connection', function(socket){
           },
           decodeAudio: false,
           transparentRtcp: true,
+          rtcpCheating: config.sdp.rtcpCheating,
           loopback: false,
           pcap: false,
           uuid: uuid
@@ -61,8 +93,9 @@ io.on('connection', function(socket){
         ahoymedCallbacks[uuid] = function(response) {
           console.log('ahoymed response', response);
           if (response && response.createRtpEndpointResponse && response.createRtpEndpointResponse.rtpEndpoint) {
-            member.rxRtpEndpointId = response.createRtpEndpointResponse.rtpEndpoint.id;
-            socket.emit('sdpRequest', response.createRtpEndpointResponse.rtpEndpoint.localDescription.sdp, member.rxRtpEndpointId, member);
+            stream.rxRtpEndpointId = response.createRtpEndpointResponse.rtpEndpoint.id;
+            member.streams[stream.uuid] = stream;
+            socket.emit('transmitSdpRequest', response.createRtpEndpointResponse.rtpEndpoint.localDescription.sdp, stream);
           }
         };
         ahoymedSocket.send(JSON.stringify(message));
@@ -70,12 +103,9 @@ io.on('connection', function(socket){
     }
   })
   
-  socket.on('receiveMedia', function(memberUuid, audio, video) {
+  socket.on('receiveMedia', function(stream, audio, video) {
     const conference = conferences[member.conferenceId];
     if (conference) {
-      var members = conference.members;
-      var sourceMember = conference.members[memberUuid];
-      if (!sourceMember) return;
       // create a RTP endpoint to transmit audio/video to the client
       var uuid = Uuid.v4();
       var message = {
@@ -97,16 +127,17 @@ io.on('connection', function(socket){
         console.log('ahoymed response', response);
         if (response && response.createRtpEndpointResponse && response.createRtpEndpointResponse.rtpEndpoint) {
           var txRtpEndpointId = response.createRtpEndpointResponse.rtpEndpoint.id;
-          socket.emit('sdpRequest', response.createRtpEndpointResponse.rtpEndpoint.localDescription.sdp, txRtpEndpointId, sourceMember);
+          socket.emit('receiveSdpRequest', response.createRtpEndpointResponse.rtpEndpoint.localDescription.sdp, txRtpEndpointId, stream);
         }
       };
       ahoymedSocket.send(JSON.stringify(message));
     }
   })
   
-  socket.on('sdpResponse', function(sdp, endpointId, sourceEndpointId) {
+  socket.on('transmitSdpResponse', function(sdp, endpointId, streamUuid) {
     if (member.conferenceId) {
       if (sdp) {
+        var stream = member.streams[streamUuid];
         var uuid = Uuid.v4();
         var message = {
           updateRtpEndpointRequest: {
@@ -119,19 +150,59 @@ io.on('connection', function(socket){
           uuid: uuid
          }
         };
-        if (sourceEndpointId) {
-          message.updateRtpEndpointRequest.sourceId = sourceEndpointId;
-        }
         console.log('request: ' + JSON.stringify(message));
         ahoymedCallbacks[uuid] = function(response) {
           console.log('ahoymed response', response);
           if (response && response.updateRtpEndpointResponse && response.updateRtpEndpointResponse.success) {
-            if (!sourceEndpointId) {
-              io.to('conference_' + member.conferenceId).emit('memberMediaStatus', member, member.audio, member.video);
-            }
+            io.to('conference_' + member.conferenceId).emit('memberMediaStatus', member, stream, true);
           }
         };
         ahoymedSocket.send(JSON.stringify(message));
+      }
+    }
+  })
+
+  socket.on('receiveSdpResponse', function(sdp, endpointId, stream) {
+console.log('stream', stream);
+    if (member.conferenceId) {
+      if (sdp) {
+        var uuid = Uuid.v4();
+        var message = {
+          updateRtpEndpointRequest: {
+          id: endpointId,
+          apiContext: "conference_" + member.conferenceId,
+          remoteDescription: {
+            type: "answer",
+            sdp: sdp
+          },
+          sourceId: stream.rxRtpEndpointId,
+          uuid: uuid
+         }
+        };
+        console.log('request: ' + JSON.stringify(message));
+        ahoymedCallbacks[uuid] = function(response) {
+          console.log('ahoymed response', response);
+          if (response && response.updateRtpEndpointResponse && response.updateRtpEndpointResponse.success) {
+          }
+        };
+        ahoymedSocket.send(JSON.stringify(message));
+      }
+    }
+  })
+  
+  socket.on('kickMember', function(memberUuid) {
+    if (member.moderator) {
+      const conference = conferences[member.conferenceId];
+      if (conference) {
+        if (conference.members[memberUuid]) {
+          Object.keys(conference.members[memberUuid].streams).forEach(function(streamUuid) {
+            var stream = conference.members[memberUuid].streams[streamUuid];
+            io.to('conference_' + member.conferenceId).emit('memberMediaStatus', conference.members[memberUuid], stream, false);
+            destroyRtpEndpoint(stream.rxRtpEndpointId);
+          });
+          io.to('conference_' + member.conferenceId).emit('memberLeft', conference.members[memberUuid]);
+          conference.members[memberUuid].conferenceId = null;
+        }
       }
     }
   })
@@ -149,27 +220,43 @@ io.on('connection', function(socket){
 
 })
 
-const ahoymedSocket = zmq.socket('dealer');
-ahoymedSocket.connect(config.zmq.mediaUri);
+var ahoymedSocket = null;
 
-ahoymedSocket.on('message', function(message) {
-  message = message.toString();
-  try {
-    var json = JSON.parse(message);
-    var keys = Object.keys(json);
+function processAhoymedMessage(message) {
+    try {
+      var json = JSON.parse(message);
+      var keys = Object.keys(json);
 
-    keys.forEach(function(key) {
-      if (key.toLowerCase().indexOf('response') != -1) {
-        var obj = json[key];
-        if (ahoymedCallbacks[obj.uuid] !== undefined) {
-          var msg = {};
-          msg[key] = obj;
-          ahoymedCallbacks[obj.uuid](msg);
-          delete ahoymedCallbacks[obj.uuid];
+      keys.forEach(function(key) {
+        if (key.toLowerCase().indexOf('response') != -1) {
+          var obj = json[key];
+          if (ahoymedCallbacks[obj.uuid] !== undefined) {
+            var msg = {};
+            msg[key] = obj;
+            ahoymedCallbacks[obj.uuid](msg);
+            delete ahoymedCallbacks[obj.uuid];
+          }
         }
-      }
-    });
-  } catch (parseException) {
-    console.log(parseException);
+      });
+    } catch (parseException) {
+      console.log(parseException);
+    }
+}
+
+if (config.ahoymed.zmqUri) {
+  ahoymedSocket = zmq.socket('dealer');
+  ahoymedSocket.connect(config.ahoymed.zmqUri);
+  ahoymedSocket.on('message', function(message) {
+    message = message.toString();
+    processAhoymedMessage(message);
+  })
+} else {
+  ahoymedSocket = new WebSocket(config.ahoymed.wsUri);
+  ahoymedSocket.onopen = function() {
+    console.log('connected to media engine');
   }
-})
+  ahoymedSocket.onmessage = function(msg) {
+    processAhoymedMessage(msg.data);
+  }
+}
+

@@ -1,6 +1,7 @@
 module.exports = {
-  zmq: {
-    mediaUri: "tcp://127.0.0.1:2999"
+  ahoymed: {
+    azmqUri: "tcp://127.0.0.1:2999",
+    wsUri: "ws://127.0.0.1:3000"
   },
   socketIo: {
     port: 4000
@@ -11,6 +12,7 @@ module.exports = {
     }
   },
   sdp: {
+    rtcpCheating: false,
     receiveAudioVideo: "\r\n\
 v=0\r\n\
 o=- 2498272862644297831 2 IN IP4 127.0.0.1\r\n\
