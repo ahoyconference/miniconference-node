@@ -1,0 +1,21 @@
+{
+  "name": "miniconference-node",
+  "description": "NodeJS component for a minimal video conference",
+  "version": "0.0.1",
+  "author": "Klaus-Peter Junghanns",
+  "private": false,
+  "engines": {
+    "node": ">=8.0.0"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "node-uuid": "^1.4.8",
+    "socket.io": "^2.2.0",
+    "ws": "^7.1.0",
+    "zeromq": "5.1.0"
+  },
+  "scripts": {
+    "prestart": "npm install",
+    "start": "node server.js"
+  }
+}
