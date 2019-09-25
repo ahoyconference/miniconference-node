@@ -1,0 +1,15 @@
+<html
+  <head>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <form>
+      <input type="text" id="conferenceId"/>
+      <input type="password" id="password"/>
+      <input type="button" value="ok" id="button" onclick="joinConference()"/>
+    </form>
+    <button onclick="addStream()">+</button>
+    <script src="js/adapter.js"></script>
+    <script src="js/client.js"></script>
+  </body>
+</html>

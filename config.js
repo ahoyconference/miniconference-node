@@ -1,7 +1,7 @@
 module.exports = {
   ahoymed: {
-    azmqUri: "tcp://127.0.0.1:2999",
-    wsUri: "ws://127.0.0.1:3000"
+    zmqUri: "tcp://127.0.0.1:2999",
+    zmqEventUri: "tcp://127.0.0.1:2998"
   },
   socketIo: {
     port: 4000
@@ -35,7 +35,7 @@ a=rtcp-mux\r\n\
 a=rtpmap:111 opus/48000/2\r\n\
 a=fmtp:111 minptime=10; useinbandfec=1; usedtx=1;\r\n\
 a=maxptime:60\r\n\
-m=video 9 RTP/SAVPF 100 116 117 96\r\n\
+m=video 9 RTP/SAVPF 100 116 117\r\n\
 c=IN IP4 0.0.0.0\r\n\
 a=rtcp:9 IN IP4 0.0.0.0\r\n\
 a=ice-ufrag:Ipdz+ww6UqDI1Qoc\r\n\
@@ -55,8 +55,6 @@ a=rtcp-fb:100 nack pli\r\n\
 a=rtcp-fb:100 goog-remb\r\n\
 a=rtpmap:116 red/90000\r\n\
 a=rtpmap:117 ulpfec/90000\r\n\
-a=rtpmap:96 rtx/90000\r\n\
-a=fmtp:96 apt=100\r\n\
 ",
 
 transmitAudioVideo: "\r\n\
@@ -81,7 +79,7 @@ a=rtcp-mux\r\n\
 a=rtpmap:111 opus/48000/2\r\n\
 a=fmtp:111 minptime=10; useinbandfec=1; usedtx=1;\r\n\
 a=maxptime:60\r\n\
-m=video 9 RTP/SAVPF 100 116 117 96\r\n\
+m=video 9 RTP/SAVPF 100 116 117\r\n\
 c=IN IP4 0.0.0.0\r\n\
 a=rtcp:9 IN IP4 0.0.0.0\r\n\
 a=ice-ufrag:Ipdz+ww6UqDI1Qoc\r\n\
@@ -101,9 +99,6 @@ a=rtcp-fb:100 nack pli\r\n\
 a=rtcp-fb:100 goog-remb\r\n\
 a=rtpmap:116 red/90000\r\n\
 a=rtpmap:117 ulpfec/90000\r\n\
-a=rtpmap:96 rtx/90000\r\n\
-a=fmtp:96 apt=100\r\n\
 "
-
   }
 };
